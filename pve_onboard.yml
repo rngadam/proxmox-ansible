@@ -1,0 +1,27 @@
+- hosts: pvenodes
+  tasks:
+
+  - name: install sudo package
+    apt:
+      name: sudo
+      update_cache: yes
+      cache_valid_time: 3600
+      state: latest
+
+  - name: create Ansible user
+    user:
+      name: ansible
+      shell: '/bin/bash'
+
+  - name: add Ansible ssh key
+    authorized_key:
+      user: ansible
+      key: "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQCvVtes84IndGQSKBQ5kfDcsM5/q/2zte8omEnmMR052vSfWY4gXr/Cnp440ixM5z3rnfNxLEA8c7gQ/PRz1Eirj4QJUBgKwDplB8edW6yRCfCPxJz4+jpVaCnZ8OJRlZ8wVL2AQGH+vLgDfnPMybvLMlStTLd7NChKgBhWLrE6CWBkJBhyCpw9FY+3iNbeiTW9YXX8aHhxtrY/GZsJoNaTxGLRb6KESrBgAm5mSGNbesg/L8aGYldUlFJQRtKD1IUt30Ld1QLYUhmVL3qPLgUaWNcZVUxqE/oC1/wABdSaxXLLUW/kDEtMVC5p1tGq6BnSqOT4N1LWEnIyjGCxaxzyIocWaDhl6T5+nyQ9o3bxGKfHadxYb167LGgneKob/inQYycdIqc0pmvrD96ykMcl7dxptV0VjgHQ+Re7Or88PCbIh+uLLW7iH9afvsmnk6lXrFottj8X/nqa5VXSzwSfRvSYLE/iTjuyzxnBjPtjaLbCp/hPKLCbiAnkVqg5yzc= rngadam@rngadam-mac"
+
+  - name: add ansible to sudoers
+    copy:
+      src: sudoer_ansible
+      dest: /etc/sudoers.d/ansible
+      owner: root
+      group: root
+      mode: 0440

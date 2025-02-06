@@ -1,0 +1,34 @@
+- hosts: pve01
+  become: false
+  gather_facts: false
+
+  tasks:
+
+  - name: Pull new openvz template with minimal options
+    community.general.proxmox_template:
+      node: pve
+      api_user: "{{proxmox_api_user}}"
+      api_token_id: "{{proxmox_api_token_id}}"
+      api_token_secret: "{{ proxmox_api_token_secret }}"
+      api_host: "{{proxmox_api_host}}"
+      url: https://hydra.nixos.org/build/283416299/download/1/nixos-system-x86_64-linux.tar.xz
+
+  - name: Create new vm with minimal options
+    vars:
+      ansible_python_interpreter: /usr/bin/python3
+    proxmox:
+      api_user: "{{proxmox_api_user}}"
+      api_token_id: "{{proxmox_api_token_id}}"
+      api_token_secret: "{{ proxmox_api_token_secret }}"
+      api_host: "{{proxmox_api_host}}"
+      node: pve
+      pool: developers
+      ostemplate: "local:vztmpl/nixos-system-x86_64-linux.tar.xz"
+      ostype: unmanaged
+      description: nixos
+      hostname: nixos01
+      password: nixos
+      disk: "local-lvm:20"
+      features:
+        - cmode: console
+        - timezone: host
