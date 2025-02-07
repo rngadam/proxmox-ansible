@@ -1,0 +1,139 @@
+---
+- name: Create cloud images
+  hosts: pve01
+  become: true
+  gather_facts: false
+  module_defaults:
+    # group defined in https://github.com/ansible-collections/community.general/blob/main/meta/runtime.yml
+    group/community.general.proxmox:
+        api_user: "{{proxmox_api_user}}"
+        api_token_id: "{{proxmox_api_token_id}}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        api_host: "{{ proxmox_api_host }}"
+
+  vars:
+    node_target: pve
+    iso_source_url: "https://dl.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"
+    iso_target_path: "/var/lib/vz/template/iso/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"
+    storage_target: "local-lvm"
+    vm_defs:
+      - id: 3000
+        name: "cloudimage-rockylinux9"
+        nets:
+          - id: 0
+            bridge: "vmbr0"
+
+  tasks:
+    - name: Download cloud image to NFS storage
+      ansible.builtin.get_url:
+        url: "{{ iso_source_url }}"
+        dest: "{{ iso_target_path }}"
+        checksum: sha256:069493fdc807300a22176540e9171fcff2227a92b40a7985a0c1c9e21aeebf57
+        mode: 0777
+
+    - name: Create new cloud images
+      community.general.proxmox_kvm:
+        name: "{{ item.name }}"
+        vmid: "{{ item.id }}"
+        serial:
+          serial0: 'socket'
+        vga: serial0
+        scsihw: 'virtio-scsi-pci'
+        bios: ovmf
+        machine: q35
+        cpu: host
+        memory: 4096
+        efidisk0:
+          storage: local
+          format: qcow2
+          efitype: 4m
+          pre_enrolled_keys: 1
+        node: "{{ node_target }}"
+        citype: nocloud
+        ciuser: "ansible"
+        cipassword: "{{ proxmox_ci_password }}"
+        autostart: yes
+        update: true
+        update_unsafe: true
+        vga: virtio
+      loop: "{{ vm_defs }}"
+      tags: cloudimage
+
+    - name: Assign network interfaces to image
+      community.general.proxmox_nic:
+        vmid: "{{ item.0.id }}"
+        interface: "net{{ item.1.id }}"
+        bridge: "vmbr1"
+        tag: "{{ item.1.tag | default(0) }}"
+      loop: "{{ vm_defs | subelements('nets') }}"
+      tags: networking
+
+    # TODO: doesn't work through API
+    # - name: Importing the cloud image disk
+    #   community.general.proxmox_disk:
+    #     # import_from: "{{ iso_target_path }}"
+    #     import_from: "local:iso/Rocky-9-GenericCloud-Base.latest.x86_64.qcow2"
+    #     vmid: " {{ item.id }}"
+    #     storage: "{{ storage_target }}"
+    #     disk: "scsi0"
+    #   loop: "{{ vm_defs }}"
+    #   tags: import_disk
+
+    # non-api
+    - name: Import the cloned image disk
+      ansible.builtin.shell:
+        cmd: "qm importdisk {{ item.id }} {{ iso_target_path }} {{ storage_target }}"
+      loop: "{{ vm_defs }}"
+
+    # TODO: doesn't work through API
+    # - name: Set the disk image as disk 0
+    #   community.general.proxmox_disk:
+    #     vmid: "{{ item.id }}"
+    #     state: present
+    #     disk: "unused0"
+    #   loop: "{{ vm_defs }}"
+
+    # non-api
+    - name: Attach the cloned disk.
+      ansible.builtin.shell:
+        cmd: "qm set {{ item.id }} --scsi0 {{ storage_target }}:vm-{{ item.id }}-disk-0"
+      loop: "{{ vm_defs }}"
+
+    - name: Add the CloudInit disk
+      ansible.builtin.shell:
+        cmd: "qm set {{ item.id }} --ide2 {{ storage_target }}:cloudinit"
+      loop: "{{ vm_defs }}"
+
+    - name: Set the boot disk
+      community.general.proxmox_kvm:
+        node: "{{ node_target }}"
+        vmid: "{{ item.id }}"
+        boot: "c"
+        bootdisk: "scsi0"
+        update: true
+      loop: "{{ vm_defs }}"
+      tags: setbootdisk
+
+    # this breaks with "__NSCFConstantString initialize" on Mac OS X
+    # export no_proxy=*
+    # see https://github.com/ansible/ansible/issues/80191
+    # TODO: also sshkeys does not work with multiple public keys from Github!
+    - name: Set SSH keys
+      community.general.proxmox_kvm:
+        node: "{{ node_target }}"
+        vmid: "{{ item.id }}"
+        sshkeys: "{{  lookup('ansible.builtin.url', 'https://github.com/rngadam.keys') }}"
+        update: true
+      loop: "{{ vm_defs }}"
+      tags: importsshkeys
+
+    - name: Convert to template (command module)
+      ansible.builtin.command:
+        cmd: qm template {{ item.id }}
+      changed_when: false  # qm template doesn't provide reliable changed status
+      register: template_result
+      failed_when: template_result.rc != 0 and "'already a template' not in template_result.stderr.lower()"  # Handle "already a template" error
+      loop: "{{ vm_defs }}"
+
+    - debug:
+        msg: "{{ template_result }}"

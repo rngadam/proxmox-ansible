@@ -1,0 +1,19 @@
+- hosts: pve01
+  become: false
+  gather_facts: false
+  module_defaults:
+    # group defined in https://github.com/ansible-collections/community.general/blob/main/meta/runtime.yml
+    group/community.general.proxmox:
+        api_user: "{{proxmox_api_user}}"
+        api_token_id: "{{proxmox_api_token_id}}"
+        api_token_secret: "{{ proxmox_api_token_secret }}"
+        api_host: "{{ proxmox_api_host }}"
+  tasks:
+  - name: Create new vm with minimal options
+    vars:
+      ansible_python_interpreter: /usr/bin/python3
+    proxmox_kvm:
+      node: pve
+      name: rockylinux01
+      pool: developers
+      clone: cloudimage-rockylinux9
